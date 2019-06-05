@@ -1,0 +1,436 @@
+---
+title: "STAT 6340 Mini Project 6"
+author: "Matthew Lynn"
+date: "April 24, 2019"
+output:
+  html_document:
+    theme: sandstone
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 40px;
+  color: DarkRed;
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+    font-size: 18px;
+  <!-- font-family: "Times New Roman", Times, serif; -->
+  color: DarkRed;
+  text-align: center;
+}
+h4.date { /* Header 4 - and the author and data headers use this too  */
+  font-size: 18px;
+  <!-- font-family: "Times New Roman", Times, serif; -->
+  color: DarkBlue;
+  text-align: center;
+}
+</style>
+# Section 1
+#### Section 2 is coded in Section 1
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.align='center',
+                      warning=FALSE, message=FALSE)
+```
+
+## Question 1
+>** Consider the data stored in cereal.csv file posted on eLearning. 
+It contains measurements on 8 variables for 43 breakfast cereals.**  
+
+```{r echo = T, results = 'hide'}
+cereal = read.csv("cereal.csv", header = T)
+```
+
+***
+
+### (a)
+>**Perform an exploratory analysis of the data.**  
+
+We perform simple exploratory data analysis on the dataset cereal
+```{r}
+str(cereal) # To see what data types we are messing with
+# Let us drop Brand, Manufacturer, and Group. They do not seem to benefit our
+# analysis and the question mentions 8 variables so dropping these makes sense.
+data = subset(cereal, select = -c(Brand, Manufacturer, Group))
+pairs(subset(data)) # are there any obvious relations
+# a correlation matrix to measure the relations, need to drop the string data types
+corrplot::corrplot(cor(data), method = "number", type = "upper")
+```
+
+***
+
+### (b)
+>**Do you think standardizing the variables before clustering would be a good idea?**
+
+Almost always this is a good idea. We see from above that our data consists of many  
+different types of macro and micro nutrients which are all measured differently.
+
+***
+
+### (c)
+>**Would you use metric-based or correlation-based distance to cluster the cereals?**
+
+Both methods have merit here. We may seet to use metric-based for pairing nutrients  
+that have similar amounts. On the other hand, we may want to pair nutrients that  
+have some relation. We could proceed with both methods and compare.
+
+***
+
+### (d)
+>**Regardless of your answers in (b) and (c), standardize the variables and hierarchically cluster the
+cereals using complete linkage and Euclidean distance. Display the results using a dendogram.
+How many clusters would you choose?**
+
+Below, cut at k = 3 seems to give us the best matching. This makes sense  
+since there are 3 manufacturers.
+```{r}
+set.seed(1)
+data_scaled <- scale(data)
+
+distance <- dist(data_scaled, method = 'euclidean')
+
+hc.complete <- hclust(distance, method = 'complete')
+
+plot(hc.complete)
+
+# We cut at as it gave us the best group matching
+cut3 = cutree(hc.complete, 3)
+rbind(cut3, cereal$Group)
+mean(cut3 == cereal$Group)
+```
+
+***
+
+### (e)
+>**Repeat (d) using K-means clustering with K = 2, 3, and 4. Which value of K would you choose?**
+
+From below, we would choose k = 2 due to its higher accuracy
+```{r}
+#K-Means Clustering
+set.seed(1)
+
+#2 clusters
+k2 = kmeans(data_scaled,2,nstart=50)$cluster
+rbind(k2, cereal$Group)
+mean(k2 == cereal$Group)
+
+#3 clusters
+k3 = kmeans(data_scaled,3,nstart=50)$cluster
+rbind(k3, cereal$Group)
+mean(k3 == cereal$Group)
+
+#4 clusters
+k4 = kmeans(data_scaled,4,nstart=50)$cluster
+rbind(k4, cereal$Group)
+mean(k4 == cereal$Group)
+```
+
+***
+
+### (f)
+>**Compare the results from (d) and (e). Which method would you recommend?**
+
+It appears that hierarchical cluster with cut k = 3 gives us the best group matching.
+```{r}
+c(mean(cut3 == cereal$Group), "Hierarchical Clustering with K=3")
+c(mean(k2 == cereal$Group), "Kmeans Clustering with k = 2")
+c(mean(k3 == cereal$Group), "Kmeans Clustering with k = 3")
+c(mean(k4 == cereal$Group), "Kmeans Clustering with k = 4")
+```
+
+***
+
+## Question 2
+>** Consider the Caravan dataset from the previous project. Standardize the predictors and split the
+data into training and test sets just as in the previous project.**
+
+```{r}
+library(ISLR)
+caravan = Caravan
+s.caravan = scale(caravan[, -86]) #86 column is purchase
+c(var(caravan[,1]),var(caravan[,2]),var(s.caravan[,1]),var(s.caravan[,2]))
+test = 1:1000
+train = (-test)
+xtrain = caravan[train,]
+xtest = caravan[test,]
+ytrain = caravan$Purchase[train]
+ytest = caravan$Purchase[test]
+```
+
+***
+
+### (a)
+>**Fit a tree to the training data. Summarize the results. Unless the number of terminal nodes
+is large, display the tree graphically and explicitly describe the regions corresponding to the
+terminal nodes that provide a partition of the predictor space (i.e., provide expressions for the
+regions R1, . . . , RJ ). Report the confusion matrix and error rate for the unpruned tree based
+on the test data.**
+
+```{r}
+fit = tree::tree(Purchase ~ ., data = caravan[train,])
+fit
+summary(fit)
+tree.pred = predict(fit,caravan[test,], type='class')
+caret::confusionMatrix(tree.pred,ytest, positive = 'Yes')
+plot(fit)
+text(fit, pretty = 0)
+unpruned.err = mean(tree.pred != ytest)
+```
+
+
+### (b)
+>**Use cross-validation to determine whether pruning is helpful and determine the optimal size for
+the pruned tree. Compare the pruned and un-pruned trees. Report the confusion matrix and
+error rate for the pruned tree based on the test data. Which predictors seem to be the most
+important?
+**
+
+```{r}
+set.seed(1)
+library(tree)
+cv.fit = cv.tree(fit)
+cv.fit
+par(mfrow = c(1,2))
+plot(cv.fit$size, cv.fit$dev, type = "b")
+plot(cv.fit$k, cv.fit$dev, type = "b")
+prune.fit = prune.tree(fit, best = 2)
+plot(prune.fit)
+text(prune.fit, pretty = 0)
+plot(fit)
+text(fit, pretty = 0)
+fit.pred = predict(fit, newdata = caravan[test,], type = 'class')
+# plot(fit.pred, y)
+1-mean(fit.pred==ytest)
+caret::confusionMatrix(fit.pred,ytest, positive = 'Yes')
+prune.err = mean(fit.pred != ytest)
+```
+
+### (c)
+>**Use a bagging approach to analyze the data with B = 1000. Compute the confusion matrix and
+error rate based on the test data. Which predictors seem to be the most important?**
+
+```{r}
+library(randomForest)
+set.seed(1)
+baggy = randomForest(Purchase ~ ., data = xtrain, mtry = 85, ntree=1000, importance = T)
+baggy
+baggy.pred = predict(baggy, xtest, type = 'class')
+caret::confusionMatrix(baggy.pred,ytest, positive = 'Yes')
+bag.err = mean(baggy.pred != ytest)
+# importance(baggy) # some of the variables seem important
+```
+
+### (d)
+>**Repeat (c) with a random forest approach with B = 1000 and m ≈ √p.**
+
+```{r}
+library(randomForest)
+set.seed(1)
+# mtry defaults to √p when its a classification problem
+baggySqrt = randomForest(Purchase ~ ., data = xtrain, ntree=1000, importance = T)
+baggySqrt
+baggySqrt.pred = predict(baggySqrt, xtest, type = 'class')
+caret::confusionMatrix(baggySqrt.pred,ytest, positive = 'Yes')
+# This would be the most important variables but this function is garbage for RF
+# importance(baggySqrt)
+bagSqrt.err = mean(baggySqrt.pred != ytest)
+```
+
+### (e)
+>**Repeat (c) with a boosting approach with B = 1000, d = 1, and λ = 0.01.**
+
+```{r}
+library(gbm)
+set.seed(1)
+booster = gbm((unclass(Purchase)-1) ~ ., data = xtrain, distribution = "bernoulli",
+              n.trees = 1000, interaction.depth = 1, shrinkage = 0.01)
+booster
+booster.pred = predict(booster, xtest, booster$n.trees, type = 'response', importance = T)
+booster.pred = factor(ifelse(booster.pred >= 0.2, "Yes", "No"))
+caret::confusionMatrix(booster.pred,ytest, positive = 'Yes')
+boost.err = mean(booster.pred != ytest)
+summary(booster)[1:5,] # top 5 variables
+```
+
+### (f)
+>**Repeat (c) with a KNN approach with K chosen optimally using the test data.**
+
+```{r}
+library(class)
+ks = c(seq(1, 15, by = 1)) # k = 15 cas my computer is slow
+nks = length(ks)
+err.rate.train = numeric(length = nks)
+err.rate.test = numeric(length = nks)
+names(err.rate.train) = names(err.rate.test) = ks
+for (i in seq(along = ks)) {
+  mod.train = knn(s.caravan[train,], s.caravan[train,], ytrain, k = ks[i])
+  mod.test = knn(s.caravan[train,], s.caravan[test,], ytrain, k = ks[i])
+  err.rate.train[i] = 1 - sum(mod.train == ytrain)/length(ytrain)
+  err.rate.test[i] = 1 - sum(mod.test == ytest)/length(ytest)
+}
+# Now we want to find the optimal k using a min function
+result <- data.frame(ks, err.rate.train, err.rate.test)
+result[err.rate.test == min(result$err.rate.test), ]
+# It appears we can get away with k = 9, our optimal k
+knn = knn(s.caravan[train,], s.caravan[test,], ytrain, k = 9)
+caret::confusionMatrix(knn,ytest, positive = 'Yes')
+knn.err = mean(knn != ytest)
+```
+
+### (g)
+>**Repeat (c) with the logistic regression method you recommended in the previous project.**
+
+```{r}
+library(caret)
+set.seed(1)
+tc <- trainControl()
+model <- train(xtrain, ytrain,
+               method="glm", family="binomial", trControl = tc)
+model
+model = glm(Purchase~., data = caravan, family = binomial, subset = train)
+prob = predict(model, xtest, type = "response")
+pred <- ifelse(prob >= 0.2, "Yes", "No")
+confusionMatrix(table(pred, ytest))
+LR.err = mean(pred != ytest) # Overall misclassification rate
+```
+
+### (h)
+>**Compare the results from the various methods. Which method would you recommend?**
+
+From below, it would appear that KNN with `K = 9` wins here. Just barely though.
+```{r}
+print(paste("Misclassification rates are"))
+print(paste("Unpruned Tree", unpruned.err))
+print(paste("CV pruned Tree", prune.err))
+print(paste("Bagging", bag.err))
+print(paste("Random Forest", bagSqrt.err))
+print(paste("Boosting", boost.err))
+print(paste("KNN", knn.err))
+print(paste("Logistic Regression", LR.err))
+```
+
+## Question 3
+>**Consider the Hitters data discussed in Chapter 8 of the book. Use log Salary as a response and
+Years and Hits as predictors.**
+
+```{r}
+library(ISLR)
+Hitters <- na.omit(Hitters)
+```
+
+
+### (a)
+>** Fit a tree to these data by “hand,” i.e., implement all the steps and perform all the necessary
+calculations by yourself. You may use the “hand calculation” handout as a model.**
+
+Function below to determine best place to split
+```{r}
+ss = function(x, y) { # calculates sum-square
+  sum((y-x)^2)
+}
+
+splitter = function(x, y) { # 'Hand' Calculation
+  splits = sort(unique(x))
+  RSS = c()
+  for (i in seq_along(splits)) {
+    sp = splits[i] # split point considering variable x[i]
+    R1 = y[x <= sp] # first half pair region
+    R2 = y[x > sp] # second
+    c1 = mean(R1) # prediction of R1
+    c2 = mean(R2)
+    RSS[i] = ss(c1,R1)+ss(c2,R2)
+  }
+  bestSp = splits[which.min(RSS)]
+  bestRSS = min(RSS)
+  leftx = splits[splits < bestSp]
+  left = length(leftx)
+  rightx = splits[splits > bestSp]
+  right = length(rightx)
+  print(paste("Best split point with lowest RSS & remaining left and right obs"))
+  return(c(bestRSS, bestSp, left, right))
+}
+y = log(Hitters$Salary)
+years = Hitters$Years
+hits = Hitters$Hits
+splitter(years,y) # we can stop since 3 < 5 obs on one node
+splitter(hits,y)
+  splitter(hits[hits<117],y) # *remaining left
+    splitter(hits[hits<99],y) # **remaining left
+    splitter(hits[hits<117&hits>99],y) # **remaining right
+  splitter(hits[hits>117],y) # *remaining right
+    splitter(hits[hits>117&hits<139],y) # **remaining left
+    splitter(hits[hits>139],y) # **emaining right
+# you get the idea, we would keep splitting til obs on either node dip below 5
+```
+
+### (b)
+>**Fit a tree using tree function in R and compare your results.**
+
+```{r echo = T, results = 'hide'}
+fit = tree::tree(formula = y ~ years + hits, data = Hitters)
+fit
+plot(fit)
+text(fit, pretty = 0)
+```
+
+## Question 4
+>**Consider the Heart discussed in Chapter 8 of the book. Use HD as a binary response, Thal and Ca
+as predictors, and deviance as the impurity measure. Repeat the previous exercise for these data.**
+
+```{r}
+heart = read.csv("Heart.csv", header = T)
+```
+
+
+### (a)
+>** Fit a tree to these data by “hand,” i.e., implement all the steps and perform all the necessary
+calculations by yourself. You may use the “hand calculation” handout as a model.**
+
+Function below to determine best place to split
+```{r}
+d = function(y) { # calculates deviance, how deviant!
+  n <- length(y)
+  n.yes <- sum(y == "Yes")
+  p.yes <- n.yes/n
+  n.no <- sum(y == "No")
+  p.no <- n.no/n
+  -2*(n.yes * log(p.yes) + n.no * log(p.no))
+
+}
+
+splooter = function(x, y) { # 'Hand' Calculation
+  splits = sort(unique(x))
+  dev = c()
+  for (i in seq_along(splits)) {
+    # print(x[i]) # current level
+    sp = splits[i] # split point considering variable x[i]
+    yi = subset(y, x == x[i])
+    dev[i] = d(yi)
+  }
+  print(dev)
+  bestSp = x[which.min(dev)]
+  bestdev = min(dev)
+  print(paste("Best split for min Deviance"))
+  return(c(bestdev, bestSp))
+}
+y = heart$AHD
+thal = heart$Thal
+ca = heart$Ca
+"Deviance set for Thal"
+splooter(thal, y)
+"Deviance set for Ca"
+splooter(ca, y)
+```
+
+### (b)
+>**Fit a tree using tree function in R and compare your results.**
+
+```{r echo = T, results = 'hide'}
+fit = tree::tree(formula = y ~ thal + ca, data = heart)
+fit
+plot(fit)
+text(fit, pretty = 0)
+```

@@ -1,0 +1,397 @@
+---
+title: "STAT 6340 Mini Project 4"
+author: "Matthew Lynn"
+date: "March 27, 2019"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 40px;
+  color: DarkRed;
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+    font-size: 18px;
+  <!-- font-family: "Times New Roman", Times, serif; -->
+  color: DarkRed;
+  text-align: center;
+}
+h4.date { /* Header 4 - and the author and data headers use this too  */
+  font-size: 18px;
+  <!-- font-family: "Times New Roman", Times, serif; -->
+  color: DarkBlue;
+  text-align: center;
+}
+</style>
+<!-- <h1 style="text-align: center;" markdown="1">Section 1</h1> -->
+<!-- <h4 style="text-align: center;" markdown="1">Section 2 is coded inside Section 1</h4> -->
+# Section 1
+Section 2 is coded in Section 1
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.align='center',
+                      warning=FALSE, message=FALSE)
+```
+
+# Question 1(a)
+We make a scatterplot of gpa against act.  
+We notice there is a positve correlation but it is not strong (0.27)  
+```{r}
+gpa = read.csv("gpa.csv", header = T)
+str(gpa)
+summary(gpa)
+pairs(subset(gpa))
+round(cor(subset(gpa)), 2)
+# There is a positive correlation between gpa and act
+# the relationship is not very strong (0.27)
+```
+
+# 1(b)
+ρ is our population correlation between gpa and act.  
+Here, we gather the bootstrap estimates of bias and standard error of  
+the point estimate and show the 95% confidence interval from bootstrap  
+```{r}
+library(boot)
+corr(gpa)
+# either function below will work
+corr.fn <- function(data, i=c(1:length(data))) {
+  result <- data[i,] 
+  return(cor(result$gpa, result$act))
+}
+corr.fn <- function(data, i=c(1:length(data))) {
+  result = corr(data[i,])
+  return(result)
+}
+set.seed(1)
+corr.boot <- boot(gpa, corr.fn, R = 1000)
+# Point estimate, bootstrap bias, and bootstrap se
+corr.boot
+# 95% bootstrap conf int
+boot.ci(corr.boot, type = "perc")
+# verified below
+sort(corr.boot$t)[c(25, 975)]
+
+# our original ρ is contained in the bootstrap interval and the bias is only
+# 0.004196114 which implies good bootstrap estimates.
+```
+
+# 1(c)
+Using gpa~act, we fit a SLR. We show the least square estimates, standard  
+errors and a 95% CI. We include verifications of our model assumptions  
+```{r}
+fit = lm(gpa~act, data = gpa)
+# least square estimate of coefficients, SE, and 95% CI
+summary(fit)
+confint(fit)
+par(mfrow = c(2,2))
+plot(fit)
+par(mfrow = c(1,1))
+# it appears the residual plot could do better via a transformation but not bad
+# the qq plot is not bad but does show some outliers.
+```
+
+# 1(d)
+We use a nonparametric bootstrap to estimate the previous question's parameters  
+The bootstrap estimates are higher than was in the linear model  
+Also, the 95% CI is wider than the linear model
+```{r}
+library(boot)
+# function to output coefficients from linear model
+fit.fn <- function(data, index) {
+  result <- coef(lm(gpa ~ act , data = gpa, subset = index))
+  return(result)
+}
+set.seed(1)
+fit.boot = boot(gpa, fit.fn, R = 1000)
+fit.boot
+boot.ci(fit.boot, type = "perc", index = 1) # intercept
+boot.ci(fit.boot, type = "perc", index = 2) # act
+```
+
+# Question 2(a)
+We want to examine StoreID, STORE and Store7 variables form the OJ data.  
+After a short EDA we determine that StoreID seems to contain all the info  
+in STORE and Store7. Thus, we can drop STORE and Store7.  
+We then use Purchase as our response, take StoreID as categorical, and split  
+our data into a train set and test set for training and predicting
+```{r}
+library(ISLR)
+names(OJ)
+# use only these 4 variables
+OJ = subset(OJ, select = c(Purchase, StoreID, Store7, STORE))
+str(OJ)
+# STORE is a subset of StoreID and Store7 is transitive through StoreID
+pairs(OJ)
+fit = glm(Purchase~., family = binomial, data = OJ)
+summary(fit)
+rm(OJ)
+# It appears that only StoreID and factor level "No" (intercept) from
+# Store7 have any significance when all predictors are used.
+# we drop Store7 and STORE
+newOJ = subset(OJ, select = c(-Store7, -STORE))
+# I do not see any reason to force MM = 1 and CH = 0
+# When I experimented, I was able to produce the same results
+newOJ$StoreID = as.factor(newOJ$StoreID) # take StoreID as factor
+# str(newOJ) # uncomment to verify is factor
+# split data 50/50, train/test
+set.seed(1)
+n = nrow(newOJ)
+sampler = sample(1:n, n/2) # n/2 is the 50/50 splitter
+train = newOJ[sampler, ]
+test = newOJ[-sampler, ]
+```
+
+# 2(b)
+Here we train a logisitc regression model and use the confusion matrix  
+to obtain sensitivity, specificity, overall misclassification, then  
+plot the ROC curve and estimate using a 10 fold cross validation  
+The caret package does all of this nicely and compactly, so we proceed  
+through the next few questions using similar coding.  
+The accuracy from our model (train data) has accuracy (1-test error)  
+very close to our confusion matrix accuracy (test data, predicted)  
+The ROC curve has a nice left corner shape, notice that the graph  
+continues to the left til -0.5, needs to be fixed to origin preferably (sorry!)  
+pROC shapes it this way with asp = 1 to keep the shape square
+```{r}
+# 10 fold cv
+  # library(crossval) # could not make sense of its inner workings
+  # Even their examples needed tailoring, and even after that
+  # it was not very intuitive.  I instead proceed with Caret package.
+  # When using K-fold CV, we use the original data set unsplit.
+  # However, I split the data beforehand so I could make a predict set
+  # with the test data.  But in general this package's function should
+  # do its own K splits as it trains/tests on the data.
+  # A rather robust way of estimating accuracy (or test error rate)
+library(caret)
+set.seed(1)
+tc <- trainControl(method = "cv", number = 10, verboseIter = F)
+model <- train(Purchase~., train,
+               method="glm", family="binomial", trControl = tc)
+model
+# 10-fold CV estimated test error rate = 1 - overall misclassification
+# also, this is 1 - accuracy = test error rate (estimated)
+glm.err = 1 - model$results[,2]
+prob = predict(model, test, type = "prob")
+# pred = predict(model, test) # or
+pred <- ifelse(prob$MM >= 0.5, "MM", "CH")
+con.mat = table(test[, "Purchase"], pred)
+confusionMatrix(con.mat)
+library(pROC)
+roc <- roc(test[, "Purchase"], prob$MM, levels = c("MM","CH"))
+plot(roc, legacy.axes = T)
+```
+
+# 2(c)
+We employ the same methods but using LDA instead
+```{r}
+library(caret)
+set.seed(1)
+model <- train(Purchase~., train,
+               method="lda", trControl = tc)
+model
+lda.err = 1 - model$results[,2]
+prob = predict(model, test, type = "prob")
+pred <- ifelse(prob$MM >= 0.5, "MM", "CH")
+confusionMatrix(table(test$Purchase, pred))
+library(pROC)
+roc <- roc(test$Purchase, prob$MM, levels = c("MM","CH"))
+plot(roc, legacy.axes = T)
+```
+
+# 2(d)
+We employ the same methods but using QDA instead  
+QDA fails if there is rank deficiency, in other words we have columns that  
+fully or partially (near fully) explain other columns.  This means our  
+data has linear dependency or multicollinearity.  If we can't invert a  
+matrix then we cannot use qda effectively or at all. Below is what  
+would be the qda procedure if there were no multicollinearity.  
+However, it will result in rank deficiency and ultimately fail.
+```{r}
+# library(caret)
+# set.seed(1)
+# model <- train(Purchase~., train,
+#                method="qda", trControl = tc)
+# model
+qda.err = "No good" # 1 - model$results[,2]
+# prob = predict(model, test, type = "prob")
+# pred <- ifelse(prob$MM >= 0.5, "MM", "CH")
+# confusionMatrix(table(test$Purchase, pred))
+# library(pROC)
+# roc <- roc(test$Purchase, prob$MM, levels = c("MM","CH"))
+# plot(roc, legacy.axes = T)
+```
+
+# 2(e)
+We employ the same methods but using KNN, we also use caret  
+to find the optimal KNN k value for lowest test error rate
+```{r}
+library(caret)
+set.seed(1)
+model <- train(Purchase~., train,
+               method="knn", trControl = tc)
+model # optimal k is 5, caret automatically uses this k
+knn.err = 1 - model$results[,2]
+prob = predict(model, test, type = "prob")
+pred <- ifelse(prob$MM >= 0.5, "MM", "CH")
+confusionMatrix(table(test$Purchase, pred))
+library(pROC)
+roc <- roc(test$Purchase, prob$MM, levels = c("MM","CH"))
+plot(roc, legacy.axes = T)
+```
+
+# 2(f)
+Now lets combine all the test error rates together and see which is the lowest  
+It seems that lda is our best model for 10 fold CV  
+KNN had nearly double of the other models
+```{r}
+rbind(glm.err, lda.err, qda.err, knn.er = min(knn.err))
+```
+
+# Question 3(a)
+Let us dive into the Auto data from ISLR and use MPG as our response
+```{r}
+library(ISLR)
+library(leaps)
+set.seed(1)
+auto = subset(Auto, select = -name)
+# eda
+str(auto)
+# summary(auto) # nice way to get some quick stats, but messy so I commented
+# Just looking at the scatterplots we see that mpg has many trends with others
+pairs(subset(auto))
+cor(auto)
+# seems to be right skewed
+hist(auto$mpg)
+# here we look at what would be worthy predictor variables.  However,
+# we are using all of them and whittling down with variable selection methods.
+```
+
+# 3(b)
+For this part we want to use MLR using least squares  
+To make this part short we simply fit all predictors as our full model  
+Then run a summary and refit using only the significant ones  
+Lastly, we compare the models using partial F test and see that  
+the reduced model is better.
+```{r}
+# fit a MLR
+fit = lm(mpg~., data = auto)
+summary(fit)
+# lets refit using only significant values seen in summary
+anova(fit, lm(mpg~.-cylinders-horsepower-acceleration, data = auto))
+# we reject the null saying they are equal thus we use the reduced model
+fit = lm(mpg~.-cylinders-horsepower-acceleration, data = auto)
+lm.ar2 = summary(fit)$adj.r.squared
+```
+
+# 3(c)
+We use best subest variable selection method here to and use R-square alongside  
+Adjusted R-square to determine our model.
+```{r}
+# best subset method
+
+totpred <- ncol(auto) - 1
+fit.full <- regsubsets(mpg~., auto, nvmax = totpred)
+fit.summary <- summary(fit.full)
+fit.summary
+best.ar2 = mean(fit.summary$adjr2)
+
+# Plot model fit measures for best model of each size against size
+par(mfrow = c(2, 2))
+
+# rsq
+plot(fit.summary$rsq, xlab = "Number of Variables", ylab = "RSQ", 
+     type = "l")
+point = as.numeric(which.max(fit.summary$rsq))
+points(point, fit.summary$rsq[point],
+       col = "red", cex = 2, pch = 8)
+# Adjusted R^2
+plot(fit.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", 
+     type = "l")
+point = as.numeric(which.max(fit.summary$adjr2))
+points(point, fit.summary$adjr2[point],
+       col = "red", cex = 2, pch = 8)
+# rsq says our best model is all predictors, this is bc it lessens the error
+# with each additional predictor.  Not a good indicator.
+# Adjr2 says our very best is at 6, however the elbow can be seen around 2 or 3
+# usually the elbow is our best bet with consideration to complexity
+
+# Get coefficients of best model for a given size
+coef(fit.full, 6)
+```
+
+# 3(d)
+Now we use forward stepwise selection  
+```{r}
+fit.fwd = regsubsets(mpg~., auto, nvmax = totpred, method = "forward")
+fit.summary <- summary(fit.fwd)
+fit.summary
+fwd.ar2 = mean(fit.summary$adjr2)
+
+# Plot model fit measures for best model of each size against size
+par(mfrow = c(2, 2))
+# rsq
+plot(fit.summary$rsq, xlab = "Number of Variables", ylab = "RSQ", 
+     type = "l")
+point = as.numeric(which.max(fit.summary$rsq))
+points(point, fit.summary$rsq[point],
+       col = "red", cex = 2, pch = 8)
+# Adjusted R^2
+plot(fit.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", 
+     type = "l")
+point = as.numeric(which.max(fit.summary$adjr2))
+points(point, fit.summary$adjr2[point],
+       col = "red", cex = 2, pch = 8)
+
+# Get coefficients of best model for a given size
+coef(fit.fwd, 6)
+```
+
+# 3(e)
+Last but not least is backward stepwise selection
+```{r}
+fit.bwd = regsubsets(mpg~., auto, nvmax = totpred, method = "backward")
+fit.summary <- summary(fit.bwd)
+fit.summary
+bwd.ar2 = mean(fit.summary$adjr2)
+
+# Plot model fit measures for best model of each size against size
+par(mfrow = c(2, 2))
+# rsq
+plot(fit.summary$rsq, xlab = "Number of Variables", ylab = "rsq", 
+     type = "l")
+point = as.numeric(which.max(fit.summary$rsq))
+points(point, fit.summary$rsq[point],
+       col = "red", cex = 2, pch = 8)
+# Adjusted R^2
+plot(fit.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", 
+     type = "l")
+point = as.numeric(which.max(fit.summary$adjr2))
+points(point, fit.summary$adjr2[point],
+       col = "red", cex = 2, pch = 8)
+
+# Get coefficients of best model for a given size
+coef(fit.bwd, 6)
+```
+
+# 3(f)
+Now we compare each model against a LOOCV on the data to see which model  
+is closest to the LOOCV adjusted R-square  
+Interestingly all subest methods resulted in the same model  
+and our quick and easy MLR model is the best of the 4
+```{r}
+# we compare each model using LOOCV from caret
+
+library(caret)
+set.seed(1)
+tc <- trainControl(method = "loocv", verboseIter = F)
+model <- train(mpg~., auto,
+               method="lm", trControl = tc)
+model
+loocv.ar2 = summary(model)$adj.r.squared
+
+rbind(loocv.ar2, lm.ar2, best.ar2, fwd.ar2, bwd.ar2)
+```
