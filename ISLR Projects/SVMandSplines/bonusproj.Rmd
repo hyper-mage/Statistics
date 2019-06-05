@@ -1,0 +1,335 @@
+---
+title: "STAT 6340 Mini Project Bonus"
+author: "Matthew Lynn"
+date: "May 3, 2019"
+output:
+  html_document:
+    theme: sandstone
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 40px;
+  color: DarkRed;
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+    font-size: 18px;
+  <!-- font-family: "Times New Roman", Times, serif; -->
+  color: DarkRed;
+  text-align: center;
+}
+h4.date { /* Header 4 - and the author and data headers use this too  */
+  font-size: 18px;
+  <!-- font-family: "Times New Roman", Times, serif; -->
+  color: DarkBlue;
+  text-align: center;
+}
+</style>
+# Section 1
+#### Section 2 is coded in Section 1
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.align='center',
+                      warning=FALSE, message=FALSE)
+```
+
+## Question 1
+>**Consider the Caravan dataset from Mini Projects 5 and 6. Standardize the predictors and split the
+data into training and test sets just as in the previous projects.**
+
+```{r echo = T, results = 'hide'}
+set.seed(1)
+library(ISLR)
+# I standardized through the function itself, won't work for me otherwise
+caravan = Caravan
+test = 1:1000
+train = (-test)
+xtrain = caravan[train,-86]
+xtest = caravan[test,]
+ytrain = caravan$Purchase[train]
+ytest = caravan$Purchase[test]
+library(e1071)
+
+# funcion to reduce data by 90% for testing
+# toyify = function(data) {
+#   set.seed(1)
+#   sampler = sample(1:nrow(data), 582)
+#   data[sampler,]
+# }
+# caravan = toyify(caravan)
+# test = 1:100
+# train = (-test)
+# xtrain = caravan[train,-86]
+# xtest = caravan[test,]
+# ytrain = caravan$Purchase[train]
+# ytest = caravan$Purchase[test]
+```
+
+
+### (a)
+>**Fit a support vector classifier to the training data with cost parameter chosen optimally using
+10-fold cross-validation. Evaluate its performance on the test data. Summarize your results**
+
+```{r}
+tune.out = tune(svm, Purchase~., data = caravan[train,], scale = T, kernel = "linear",
+                ranges = list(cost = c(0.001,0.01,0.1,1,5,10)))
+summary(tune.out)
+bestmod = tune.out$best.model
+pred = predict(bestmod, xtest)
+caret::confusionMatrix(pred,ytest, positive = 'Yes')
+svm.lin.err = mean(pred != ytest)
+```
+
+### (b)
+>**Repeat (a) using a support vector machine with a polynomial kernel of degree two.**
+
+```{r}
+tune.out = tune(svm, Purchase~., data = caravan[train,], kernel = "polynomial", degree = 2,
+                ranges = list(cost = c(0.001,0.01,0.1,1,5,10,100)))
+summary(tune.out)
+bestmod = tune.out$best.model
+pred = predict(bestmod, xtest)
+caret::confusionMatrix(pred,ytest, positive = 'Yes')
+svm.poly.err = mean(pred != ytest)
+```
+
+### (c)
+>**Repeat (a) using a support vector machine with a radial kernel with both γ and cost parameter
+chosen optimally.**
+
+```{r}
+tune.out = tune(svm, Purchase~., data = caravan[train,], kernel = "radial",
+                ranges = list(cost = c(0.001,0.01,0.1,1,5,10,100),
+                gamma = c(0.1,0.5,1,2,4)))
+# summary(tune.out) # long output
+bestmod = tune.out$best.model
+pred = predict(bestmod, xtest)
+caret::confusionMatrix(pred,ytest, positive = 'Yes')
+svm.rad.err = mean(pred != ytest)
+```
+
+### (d)
+>**Compare results from the above three methods and also from the method you recommended for
+these data in Mini Project 6. Which method would you recommend now?**
+
+Our KNN with K=9 gave us 0.05
+```{r echo=F}
+print(paste("Misclassification rates are"))
+print(paste("SVM linear", svm.lin.err))
+print(paste("SVM polynomial", svm.poly.err))
+print(paste("SVM radial", svm.rad.err))
+```
+
+## Question 2
+>**Consider the business school admission data from Mini Project 3. Split the data into training and
+test sets just as in that project**
+
+```{r echo = T, results = 'hide'}
+admission = read.csv("admission.csv", header = T)
+admission$Group <- as.factor(admission$Group)
+# make test set of the last 5 obs in each Group's factor level
+library(dplyr)
+test <- admission %>% 
+  group_by(Group) %>% do(tail(.,5))
+train = anti_join(admission, test)
+```
+
+### (a)
+>**Fit a support vector classifier to the training data with cost parameter chosen optimally using
+10-fold cross-validation. Evaluate its performance on the test data. Summarize your results**
+
+```{r}
+tune.out = tune(svm, Group~., data = train, scale = T, kernel = "linear",
+                ranges = list(cost = c(0.001,0.01,0.1,1,5,10)))
+summary(tune.out)
+bestmod = tune.out$best.model
+pred = predict(bestmod, test)
+caret::confusionMatrix(pred,test$Group)
+svm.lin.err = mean(pred != test$Group)
+```
+
+### (b)
+>**Repeat (a) using a support vector machine with a polynomial kernel of degree two.**
+
+```{r}
+tune.out = tune(svm, Group~., data = train, kernel = "polynomial", degree = 2,
+                ranges = list(cost = c(0.001,0.01,0.1,1,5,10,100)))
+summary(tune.out)
+bestmod = tune.out$best.model
+pred = predict(bestmod, test)
+caret::confusionMatrix(pred,test$Group)
+svm.poly.err = mean(pred != test$Group)
+```
+
+### (c)
+>**Repeat (a) using a support vector machine with a radial kernel with both γ and cost parameter
+chosen optimally.**
+
+```{r}
+tune.out = tune(svm, Group~., data = train, kernel = "radial",
+                ranges = list(cost = c(0.001,0.01,0.1,1,5,10,100),
+                gamma = c(0.1,0.5,1,2,4)))
+# summary(tune.out) # really long data frame
+bestmod = tune.out$best.model
+pred = predict(bestmod, test)
+caret::confusionMatrix(pred,test$Group)
+svm.rad.err = mean(pred != test$Group)
+```
+
+### (d)
+>**Compare results from the above three methods and also the method you recommended for these data in Mini Project 3. Which method would you recommend now? For this method, display the data with decision boundary superimposed.**
+
+LDA got 0.2  
+QDA got 0.13  
+I would still go with LDA due to its simplicity. It additionally has more interpretability  
+than SVMs.
+```{r}
+print(paste("Misclassification rates are"))
+print(paste("SVM linear", svm.lin.err))
+print(paste("SVM polynomial", svm.poly.err))
+print(paste("SVM radial", svm.rad.err))
+
+
+# now we can perform LDA and superimpose the decision boundary!
+library(MASS)
+lda.fit <- lda(Group ~ GPA + GMAT, data = train)
+lda.pred <- predict(lda.fit, test)
+n.grid <- 50
+x1.grid <- seq(f = min(test[, 1]), t = max(test[, 1]), l = n.grid)
+x2.grid <- seq(f = min(test[, 2]), t = max(test[, 2]), l = n.grid)
+grid <- expand.grid(x1.grid, x2.grid)
+colnames(grid) <- colnames(test[,1:2])
+pred.grid <- predict(lda.fit, grid)
+
+model <- lda(Group ~ GPA+GMAT, data=train) 
+# simple and pretty version for graphing
+# plot on test set with decision boundaries
+prob1 <- matrix(pred.grid$posterior[, 1], 
+                nrow = n.grid, ncol = n.grid, byrow = F)
+prob2 <- matrix(pred.grid$posterior[, 2], 
+                nrow = n.grid, ncol = n.grid, byrow = F)
+plot(test[,1:2], pch = ifelse(test$Group != 1, 
+                              ifelse(test$Group == 2, 0, 1), 2))
+contour(x1.grid, x2.grid, prob1, levels = 0.5, 
+        labels = "", xlab = "", ylab = "", main = "", add = T)
+contour(x1.grid, x2.grid, prob2, levels = 0.5, 
+        labels = "", xlab = "", ylab = "", main = "", add = T)
+legend("bottomright", legend=c("2, No", "3, Maybe", "1, Yes"),
+       pch=c(0, 1, 2), cex=0.8, bg="transparent")
+title("Test Data")
+```
+
+## Question 3
+>**Consider the lidar data available in lidar.csv file on eLearning. This dataset has 221 observations
+from a light detection and ranging (LIDAR) experiment on two variables — range, indicating distance
+travelled before the light is reflected back to its source, and logratio, indicating logarithm of the
+ratio of received light from two laser sources. Here logratio serves as response and range serves as
+predictor.**
+
+```{r echo = T, results = 'hide'}
+lidar = read.csv("lidar.csv", header = T)
+```
+
+### (a)
+>**Draw a scatterplot of the data. Comment on the relationship between the two variables.**
+
+```{r}
+pairs(lidar)
+```
+
+### (b)
+>**Fit a polynomial of degree 4 to the data. Superimpose the resulting fit on the scatterplot.
+Comment on the appropriateness of the fit.**
+
+```{r}
+fit = lm(logratio~poly(range, 4), data = lidar)
+rangelims =range(lidar$range)
+range.grid=seq (from=rangelims [1], to=rangelims [2])
+pred = predict(fit, newdata = list(range=range.grid),se=TRUE)
+lidar.se.bands=cbind(pred$fit+2*pred$se.fit, pred$fit-2*pred$se.fit)
+plot(lidar$range, lidar$logratio, xlim=rangelims, cex =.5, col =" darkgrey ")
+title ("Degree-4 Polynomial ")
+lines(range.grid, pred$fit ,lwd =2, col =" blue")
+matlines (range.grid, lidar.se.bands, lwd =1, col =" blue",lty =3)
+poly.pred = pred
+```
+
+### (c)
+>**Repeat (b) by using a cubic regression spline with 4 degrees of freedom. How were the knots
+chosen? Report the knot locations.**
+
+```{r}
+library(splines)
+# knots chosen by quantiles, here we have just 1
+attr(bs(lidar$range, df = 4), "knots")
+cubic=lm(logratio~bs(range, df = 4), data=lidar)
+pred=predict(cubic, newdata =list(range=range.grid),se=T)
+plot(lidar$range, lidar$logratio, col =" gray ")
+title ("Cubic regression spline")
+lines(range.grid ,pred$fit ,lwd =2)
+lines(range.grid, pred$fit +2* pred$se ,lty ="dashed")
+lines(range.grid ,pred$fit -2* pred$se ,lty ="dashed")
+cubic.pred = pred
+```
+
+### (d)
+>**Repeat (b) by using a natural cubic regression spline with 4 degrees of freedom. How were the
+knots chosen? Report the knot locations.**
+
+```{r}
+# knots chosen by quantiles, here we have 3
+attr(ns(lidar$range, df = 4), "knots")
+natural=lm(logratio~ns(range, df = 4), data=lidar)
+pred=predict(natural, newdata =list(range=range.grid),se=T)
+plot(lidar$range, lidar$logratio, col =" gray ")
+title ("Cubic regression spline")
+lines(range.grid ,pred$fit ,lwd =2)
+lines(range.grid, pred$fit +2* pred$se ,lty ="dashed")
+lines(range.grid ,pred$fit -2* pred$se ,lty ="dashed")
+natural.pred = pred
+```
+
+### (e)
+>**Repeat (b) by using a smoothing spline with 4 effective degrees of freedom. How were the knots
+chosen? Report the knot locations.**
+
+```{r}
+# knots are somewhere but we don't define it for smoothing
+smooth = smooth.spline(lidar$logratio, lidar$range, df=4)
+plot(lidar$range, lidar$logratio, col ="gray")
+title ("Smooth spline with df = 4")
+lines(smooth$y, smooth$x, col ="red", lwd = 2)
+```
+
+### (f)
+>**(f) Compare the four fits. Which method would you recommend? For this method, additionally provide a scatterplot of the data superimposed with the fit and the associated approximate 95% confidence interval. Comment on the result.**
+
+It appears that the Natural spline fits better than the others, it handles the right  
+side boundary better as expected.
+```{r}
+plot(lidar$range, lidar$logratio, col ="gray")
+
+# Poly fit
+lines(range.grid, poly.pred$fit ,lwd =1, col =" blue", lty = 3)
+# matlines (range.grid, lidar.se.bands, lwd =1, col =" blue",lty =3)
+
+# cubic fit
+lines(range.grid ,cubic.pred$fit ,lwd =1, col = "darkgreen", lty = 2)
+# lines(range.grid, cubic.pred$fit +2* cubic.pred$se ,lty ="dashed")
+# lines(range.grid ,cubic.pred$fit -2* cubic.pred$se ,lty ="dashed")
+
+# natural spline
+lines(range.grid ,natural.pred$fit ,lwd =1, col = "purple", lty = 1)
+lines(range.grid, natural.pred$fit +2* natural.pred$se ,col = "purple", lty ="dashed")
+lines(range.grid ,natural.pred$fit -2* natural.pred$se ,col = "purple", lty ="dashed")
+
+# smooth spline
+lines(smooth$y, smooth$x, col ="red", lwd = 1)
+
+legend("bottomleft", legend = c("Poly", "Cubic", "Natrual", "Smooth"),
+       col = c("blue", "darkgreen", "purple", "red"),
+       lty = c(3, 2, 1, 1))
+```
